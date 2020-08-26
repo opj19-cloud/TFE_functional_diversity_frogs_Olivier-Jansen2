@@ -1,0 +1,768 @@
+---
+title: "Functional diversity and composition of Bornean stream frogs"
+author: "Olivier Jansen"
+date: "August 2020"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Introduction
+The impact of human disturbances on Bornean stream frogs was assed by comparing the functional diversity, the functional trait variability and the functional trait composition between primary forests(PF), logged forests (LF) and oil palm plantations (OP). I started to measure the functional diversity of those habitats with three measures: functional richness, functional evenness and functional divergence. 
+
+## A. Functional diversity:  Functional richness
+The FD measure of functional richness described by Petchey and Gaston (2002,2006) and used by Riemann et al. (2017) will be used in this study. Four steps are required for this calculation wich are 1) create a trait dataset, 2) convert the trait dataset into a distance matrix, 3) create a dendrogram based on the distances, 4) Measure the total branch length of the dendrogram (Petchey and Gaston, 2002). 
+
+### 1) Trait dataset
+Load usefull R packages, load the filtered frog dataset from (Konopik et al., 2015) and create subsets removing NAs for the snout-vent length (SVL) and the gape width (GW) traits
+```{r,warning=FALSE, message=FALSE}
+library(vegan)
+library(dplyr)
+library(hillR)
+library(openxlsx)
+library(PMCMR)
+library(car)
+library(ggplot2)
+library(tidyr)
+Data<-readWorkbook("OJ_functional_frog_data.xlsx", sheet=1, colNames = TRUE, startRow = 10)
+Data2<-subset(Data,Data$svl!="NA")
+Data3<-subset(Data,Data$gw!="NA")
+```
+
+
+#### Snout-vent length (SVL)
+```{r}
+Mean_male_svl<-Data2%>%filter(sex=="male")%>%group_by(Taxon_name)%>%summarise(Mean.male.svl=mean(svl), sd.male.svl=sd(svl))
+Mean_female_svl<-Data2%>%filter(sex=="female")%>%group_by(Taxon_name)%>%summarise(Mean.female.svl=mean(svl), sd.female.svl=sd(svl))
+svl<-merge(Mean_male_svl,Mean_female_svl, by="Taxon_name", all=TRUE)
+```
+I tested if there was a sexual dimorphism in size across species to determine if it is necessary to separate svl between male and females. 
+```{r}
+t.test(svl$Mean.male.svl,svl$Mean.female.svl)
+```
+The difference is significant, which means that there is a sexual dimorphism between males and females. Therefore, the SVL column will be split into males and females to create the trait dataset.
+
+
+#### Gape width (GW)
+```{r}
+Mean_male_gw<-Data3%>%filter(sex=="male")%>%group_by(Taxon_name)%>%summarise(Mean.male.gw=mean(gw), sd.male.gw=sd(gw))
+Mean_female_gw<-Data3%>%filter(sex=="female")%>%group_by(Taxon_name)%>%summarise(Mean.female.gw=mean(gw), sd.female.gw=sd(gw))
+gw<-merge(Mean_male_gw,Mean_female_gw, by="Taxon_name", all=TRUE)
+```
+I tested if there was a sexual dimorphism in gape width across species to determine if it is necessary to separate gw between male and females. 
+```{r}
+t.test(gw$Mean.male.gw,gw$Mean.female.gw)
+```
+The difference is not significant, which means that there is no sexual dimorphism between males and females. Therefore, the gw column will be merged in one column to create the trait dataset.
+```{r}
+Mean_gw<-Data3%>%group_by(Taxon_name)%>% summarise(mean.gw=mean(gw), sd.gw=sd(gw))
+```
+
+
+#### Gut content (GC)
+The gut content of the frogs was available from Konopik et al. (2015). I measured the class richness of the gut content  and inserted it in the trait dataset since gut content is a direct information of resource use patterns (Petchey and Gaston, 2006).
+
+```{r}
+gut_data<-readWorkbook("OJ_functional_frog_data.xlsx", sheet=2, colNames = TRUE, startRow = 10)
+gut_content <- with(gut_data, table(gut_data$Taxon_name,gut_data$taxon_class))
+gut_content <- data.frame(unclass(gut_content))
+
+qD <- matrix(NA,nrow=nrow(gut_content), ncol=3)
+for (j in 1:3) {
+  qD[,j] <- hill_taxa(comm=gut_content, q=j-1)
+}
+```
+
+#### Traits
+```{r}
+Traits<-readWorkbook("OJ_functional_frog_data.xlsx", sheet=3, colNames = TRUE,rowNames = TRUE)
+Traits$BH <-as.factor(Traits$BH)
+Traits$CP <-as.factor(Traits$CP)
+Traits$RM <-as.factor(Traits$RM)
+Traits$BC <-as.factor(Traits$BC)
+Traits$RHL <-factor(Traits$RHL, ordered=TRUE,levels=c("1","2","3","4"))
+Traits$HW <-factor(Traits$HW, ordered=TRUE,levels=c("1","2","3","4"))
+Traits$FW <-factor(Traits$FW, ordered=TRUE,levels=c("1","2","3","4"))
+Traits$TD <-factor(Traits$TD, ordered=TRUE,levels=c("1","2","3","4"))
+
+head(Traits)
+
+```
+
+
+### 2) Distance Matrix
+
+The function daisy helped to convert the trait dataset into a distance matrix based on Gower's distance that allows data of mixed types (Swenson 2014). This function also standardised
+the trait values to enable equal comparisons. 
+
+```{r,,warning=FALSE, message=FALSE}
+library(cluster)
+```
+
+
+```{r}
+distance_matrix<-daisy(Traits,metric = "gower")
+distance_matrix<-as.matrix(distance_matrix)
+```
+
+### 3) Dendrogram
+The average group clustering method (UPGMA) was performed to create a hierarchical clustering. 
+```{r,warning=FALSE, message=FALSE}
+library(phangorn)
+```
+
+
+```{r}
+frogs_UPGMA<-upgma(distance_matrix,method="average")
+frogs_UPGMA$tip.label<- c("Ansonia leptopus","Ansonia longidigita", "Ansonia spinulifer",
+                          "Chaperina fusca",
+                          "Fejervarya limnocharis",
+                          "Hylarana erythrea",
+                          "Hylarana megalonesa",
+                          "Hylarana nicobariensis",
+                          "Hylarana picturata",
+                          "Hylarana signata",
+                          "Ingerana baluensis",
+                          "Ingerophrynus divergens",
+                          "Kalophrynus pleurostigma",
+                          "Leptobrachella mjobergi",
+                          "Leptobrachella parva",
+                          "Leptobrachium abbotti",
+                          "Leptolalax dringi",
+                          "Leptolalax gracilis",
+                          "Limnonectes finchi",
+                          "Limnonectes ibanorum",
+                          "Limnonectes kuhlii",
+                          "Limnonectes leporinus",
+                          "Limnonectes paramacrodon",
+                          "Megophrys nasuta",
+                          "Meristogenys orphnocnemis",
+                          "Meristogenys sp.",
+                          "Microhyla perparva",
+                          "Microhyla petrigena",
+                          "Nyctixalus pictus",
+                          "Odorrana hosii",
+                          "Pedostibes hosii",
+                          "Pelophryne signata",
+                          "Philautus hosii",
+                          "Philautus tectus",
+                          "Phrynoidis aspera",
+                          "Phrynoidis juxtaspera",
+                          "Polypedates leucomystax",
+                          "Polypedates macrotis",
+                          "Polypedates otilophus",
+                          "Rhacophorus belalongensis",
+                          "Rhacophorus gauni",
+                          "Rhacophorus harrissoni",
+                          "Rhacophorus pardalis",
+                          "Staurois guttatus",
+                          "Staurois latopalmatus",
+                          "Staurois parvus")
+
+plot.phylo(as.phylo(frogs_UPGMA), type="p", edge.col=1, edge.width=1, show.node.label=TRUE, no.margin=TRUE)
+```
+
+The Pearson's product-moment correlation between cophenetic (branch lengths) and original distances was then calculated to verify that the tree was a correct representation of the reality. 
+
+```{r,warning=FALSE, message=FALSE}
+library(ape)
+library("dendextend")
+```
+
+```{r}
+frogs_cophenetic<-cophenetic.phylo(frogs_UPGMA)
+mantel(distance_matrix, frogs_cophenetic, method="pearson", permutations=999)
+```
+The functional dendrogram was then drawn.
+```{r}
+frogs_hclust<-as.hclust(frogs_UPGMA,hang.dendrogram(0.5))
+frogs_dendrogram<-as.dendrogram(frogs_hclust)
+frogs_dendrogram<- set(frogs_dendrogram, "labels_cex", 0.53)
+plot(frogs_dendrogram,ylab="Height (branch length)")
+
+```
+
+
+
+### 4) Branch length per community 
+The functional richness (FD) is defined as the total branch length in a trait dendrogram connecting all species, but excluding the unnecessary root segments of the tree (Petchey and Gaston 2006). The community matrix was first created to measure the abundance of each forg species in each community.
+```{r}
+community<- with(Data, table(Data$stream,Data$Taxon_name))
+community<- data.frame(unclass(community),check.names = FALSE)
+for (i in ncol(community)){
+  number_persp<-colSums(community)
+  number_persp<-as.data.frame(number_persp)
+}
+
+```
+
+The function treedive, adapted to this study was used to measure the functional richness (Petchey 2002, Riemann 2017). 
+```{r}
+FRic <- numeric(nrow(community))
+for (i in 1:nrow(community)) {
+  k <- community[i,] > 0
+  nit <- sum(k)
+  d <- as.dist(frogs_cophenetic[k,k])
+  cl_upgma<-upgma(d,method="average")
+  cl_hclust<-as.hclust(cl_upgma)
+  FRic[i] <- treeheight(cl_hclust)
+  }
+names(FRic) <- rownames(community)
+FRic<-as.data.frame(FRic)
+FRic
+
+```
+### Results functional richness
+The influence of habitat modifications on frogs functional richness was evaluated. The normality was tested to chose between parametric and non parametric tests. Since the normality was verified, ANOVA and a tukey post-hoc test were done to compare the functional richness between the habitats.
+
+
+#### Influence of habitat on functional richness
+```{r}
+Habitat<-c(rep("LF",6),"OP","PF",rep("OP",3),"PF","LF",rep("OP",3),"LF",rep("PF",5))
+FRic<-cbind(Habitat,FRic)
+FRic$Habitat <- factor(FRic$Habitat , levels=c("PF", "LF", "OP"))
+boxplot(FRic$FRic~FRic$Habitat,xlab="Habitat", ylab="Functional richness")
+
+
+shapiro.test(FRic$FRic)
+
+Fit<-aov(FRic$FRic~FRic$Habitat)
+summary(Fit)
+
+tukey<- TukeyHSD(x=Fit, 'FRic$Habitat', conf.level=0.95)
+tukey
+```
+
+
+#### functional richness vs taxonomic richness
+
+Functional diversity being generally highlty correlated to taxonomic richness (Petchey 2002), their correlation was tested. q0 refers to Hill numbers and corresponds to species richness.
+```{r}
+qD_taxo <- as.data.frame(specnumber(community))
+qD_taxo<-qD_taxo%>% rename(q0 = `specnumber(community)`)
+FRic<-cbind(FRic,qD_taxo)
+
+
+Mod2<-lm(FRic$FRic~FRic$q0)
+summary(Mod2)
+
+plot(FRic$FRic[FRic$Habitat=="PF"]~FRic$q0[FRic$Habitat=="PF"],xlab="Species richness", ylab="Functional richness (FRic)",pch=21,bg="black")
+points(FRic$FRic[FRic$Habitat=="LF"]~FRic$q0[FRic$Habitat=="LF"],xlab="Species richness", ylab="Functional richness (FRic)",pch=22,bg="grey")
+points(FRic$FRic[FRic$Habitat=="OP"]~FRic$q0[FRic$Habitat=="OP"],xlab="Species richness", ylab="Functional richness (FRic)",pch=24,bg="white")
+abline(Mod2)
+legend("topleft", legend=c("PF", "LF","OP"),pch =c(21,22,24), pt.bg=c("black", "grey","white"), lty=1:2, cex=0.8)
+
+```
+
+
+#### Null models functional richnes
+Because functional richness was highly correlated with species richness, species richess was kept constant by null models to allow comparison between communities and investigate variations of functional richnness beyond species richness (Viller et al.,  2008; Swenson, 2014; Riemann et al., 2017).  
+```{r,warning=FALSE, message=FALSE}
+library(picante)
+```
+
+```{r}
+#The dendrogram tips were shuffled to randomize the functional traits while the functional richness did not change.
+#The function suffle the tips but change the order of the tips. Therefore, they needed to be ordered alphabetically.
+rand.FRic.fun<-function(community, x){
+  tmp.phylo<-tipShuffle(x) 
+  tmp.phylo_hclust<-as.hclust(tmp.phylo)
+  r<- cophenetic(tmp.phylo_hclust)
+  ordering <- sort(attr(r, "Labels"))
+  m2 <- as.matrix(r)[ordering, ordering]
+  
+  
+  div2 <- numeric(nrow(community))
+  for (i in 1:nrow(community)) {
+    k <- community[i,] > 0
+    nit <- sum(k)
+    d <- as.dist(m2[k,k])
+    tree<-upgma(d,method="average")
+    cl_hclust<-as.hclust(tree)
+    div2[i] <- treeheight(cl_hclust)
+  }
+  names(div2) <- rownames(community)
+  div2<-as.data.frame(div2)
+}
+
+
+
+
+null.output<-replicate(999,rand.FRic.fun(community,frogs_UPGMA))
+null.output<-as.data.frame(null.output)
+
+```
+
+#### Deviation from the null model: Standardised effect size (SES)
+The standardized effect size (SES), comparing the expected functional richness (FRic_exp) obtained from the null models and the observed functional richness (FRic), was measured for each habitat to assess deviation from the null model. 
+```{r,warning=FALSE, message=FALSE}
+library(genefilter)
+```
+
+```{r}
+FRic_ex<-matrix(NA,nrow = nrow(null.output))
+FRic_ex_sd<-matrix(NA,nrow = nrow(null.output))
+for(i in 1:nrow(null.output)){
+  FRic_ex[i,]<-rowMeans(null.output[i,])
+  FRic_ex_sd[i,]<-as.numeric(rowSds(null.output[i,]))
+} 
+FRic<-cbind(FRic,FRic_ex,FRic_ex_sd)
+FRic
+```
+
+The normality of the distribution was verified for each habitat type and the deviation from null models was tested.
+```{r}
+# PF
+FRic_PF<-FRic %>% filter(Habitat=="PF")
+shapiro.test(FRic_PF$FRic)
+shapiro.test(FRic_PF$FRic_ex)
+t.test(FRic_PF$FRic, FRic_PF$FRic_ex, paired=TRUE) 
+
+#LF
+FRic_LF<-FRic %>% filter(Habitat=="LF")  #significant => normality not respected => NP => Wilcoxon signed rank test
+shapiro.test(FRic_LF$FRic)
+shapiro.test(FRic_LF$FRic_ex)
+wilcox.test(FRic_LF$FRic, FRic_LF$FRic_ex, paired=TRUE) 
+
+#OP
+FRic_OP<-FRic %>% filter(Habitat=="OP")
+shapiro.test(FRic_OP$FRic)
+shapiro.test(FRic_OP$FRic_ex)
+t.test(FRic_OP$FRic, FRic_OP$FRic_ex, paired=TRUE) 
+```
+
+
+#### Test whether these SES values vary with habitat type
+The standardised effect size was compared accross the habitats to test whether functional richness SES is influenced by habitat type. Since the normality was respected, an ANOVA was carried out.
+```{r}
+FRic$FRic_SES<-(FRic$FRic-FRic$FRic_ex)/FRic$FRic_ex_sd
+FRic$Habitat <- factor(FRic$Habitat , levels=c("PF", "LF", "OP"))
+boxplot(FRic$FRic_SES~FRic$Habitat, xlab="Habitat", ylim=c(-3,1),ylab="Functional richness SES")
+abline(h=0,lty="dashed",lwd=3)
+```
+
+
+
+```{r}
+shapiro.test(FRic$FRic_SES)
+mod_SES<-aov(FRic$FRic_SES~FRic$Habitat)
+summary(mod_SES)
+```
+
+
+## B. Functional diversity: Functional evenness and functional divergence
+The functional evenness and the functional divergence (Rao's quadratic entropy) of Bornean frogs were calculated with the indices developped by Villeger et al. (2008) and Botta-Dukat (2005) and improved by Laliberte and Legendre (2010). 
+```{r,warning=FALSE, message=FALSE}
+library(FD)
+library(picante) 
+```
+
+```{r}
+dbFD<-dbFD(distance_matrix, community,w.abun = TRUE,calc.FRic=FALSE,stand.FRic=TRUE, scale.RaoQ = TRUE,calc.FGR = FALSE,calc.CWM = FALSE,calc.FDiv = FALSE,messages = TRUE)
+FEve<-dbFD$FEve
+RaoQ<-dbFD$RaoQ
+FD<-cbind(FRic,FEve,RaoQ)
+
+```
+
+### Null models for functional evenness and functional divergence
+To obtain functional evenness and functional divergence values independent of species richness and remove its effect on those indices,  null models with 999 randomisations were used (De Coster et al., 2015).
+```{r}
+#Observed FD measures 
+obs.FEve<-FD$FEve
+obs.RaoQ<-FD$RaoQ
+```
+
+```{r,eval=FALSE}
+#Randomize species and obtain null distribution for n random communities (maintaining fragment species richness) 
+nsamp=999
+niter=999    
+nsites=dim(community)[1]
+nspecies=dim(community)[2]
+
+FEve.rand<-matrix(data=NA,nrow=nsites,ncol=nsamp)
+row.names(FEve.rand) = row.names(FD) 
+RaoQ.rand<-matrix(data=NA,nrow=nsites,ncol=nsamp)
+row.names(RaoQ.rand) = row.names(FD) 
+
+ i=1 
+ while (i < nsamp+1) { 
+   print(i)  #a counter to know how far the simulation is #   
+   random.community=matrix(data=0,nrow=nsites, ncol=nspecies,dimnames = list(rownames(community),colnames(community)) ) 
+   random.community=randomizeMatrix(community, null.model = "richness", iterations = niter) 
+
+   for (j in 1:nsites) {
+     random.community[j,]= random.community[j,]
+   } 
+   if (all(apply(random.community, 2, sum) != 0)) { #condition needed to run dbFD
+     FD.community.1sample=dbFD(distance_matrix,a=random.community,w.abun=TRUE, calc.CWM=FALSE,calc.FRic = FALSE,stand.FRic=FALSE,scale.RaoQ = TRUE,calc.FDiv = FALSE) 
+     FD.community.1sample=as.data.frame(FD.community.1sample)
+     FEve.rand[,i]=FD.community.1sample$FEve 
+     RaoQ.rand[,i]=FD.community.1sample$RaoQ
+     i=i+1
+     } 
+ }
+
+ FEve.rand<-as.matrix(FEve.rand)
+ RaoQ.rand<-as.matrix(RaoQ.rand)
+ 
+write.csv(FEve.rand, file = "FEve.rand_null_model_n999.csv", row.names=TRUE) 
+write.csv(RaoQ.rand, file = "RaoQ.rand_null_model_n999.csv", row.names=TRUE)
+ 
+```
+
+Standardised effect sizes (SES) were calculated for functional evenness and functional divergence to quantify the deviation of observed values from expected null models. SES was calculated by substracting the mean of the expected functional evenness and divergence values from each observed value and dividing it by the standard deviation of the expected values.
+```{r}
+obs.FEve<-FD$FEve
+obs.RaoQ<-FD$RaoQ
+
+nsamp=999
+niter=999    
+nsites=dim(community)[1]
+nspecies=dim(community)[2]
+
+FEve.rand = as.matrix(read.csv("FEve.rand_null_model_n999.csv",header=T, row.names=1))
+RaoQ.rand = as.matrix(read.csv("RaoQ.rand_null_model_n999.csv",header=T, row.names=1))
+
+mean.FEve.rand=apply(FEve.rand,1,mean)
+sd.FEve.rand=apply(FEve.rand,1,sd)
+
+mean.RaoQ.rand=apply(RaoQ.rand,1,mean)
+sd.RaoQ.rand=apply(RaoQ.rand,1,sd)
+
+SESFEve<-rep(NA,nsites)
+names(SESFEve)=rownames(community)
+SESRaoQ<-rep(NA,nsites)
+names(SESRaoQ)=rownames(community)
+for (j in 1:nsites) {   
+  SESFEve[j]=(obs.FEve[j]- mean.FEve.rand[j])/sd.FEve.rand[j]
+  SESRaoQ[j]=(obs.RaoQ[j]- mean.RaoQ.rand[j])/sd.RaoQ.rand[j]
+  } 
+SESFD=cbind(FD,SESFEve,SESRaoQ) 
+
+```
+
+
+### Test whether these SES values vary with habitat type
+As the functional eveness and functional divergence followed non-parametric distributions, the comparison across habitats was evaluated with a Kruskal-Wallis analysis of variance test.
+#### FEve
+```{r}
+SESFD$Habitat <- factor(SESFD$Habitat , levels=c("PF", "LF", "OP"))
+boxplot(SESFD$SESFEve~SESFD$Habitat, xlab="Habitat",ylab="SES")
+abline(h=0,lty="dashed",lwd=3)
+
+
+shapiro.test(SESFD$SESFEve)
+mod_SES_FEve<-kruskal.test(SESFD$SESFEve~SESFD$Habitat)
+mod_SES_FEve
+```
+
+#### RaoQ
+```{r}
+SESFD$Habitat <- factor(SESFD$Habitat , levels=c("PF", "LF", "OP"))
+boxplot(SESFD$SESRaoQ~SESFD$Habitat, xlab="Habitat",ylab="SES")
+abline(h=0,lty="dashed",lwd=3)
+
+shapiro.test(SESFD$SESRaoQ)
+mod_SES_RaoQ<-kruskal.test(SESFD$SESRaoQ~SESFD$Habitat)
+mod_SES_RaoQ
+
+
+```
+
+```{r}
+par(mfrow=c(1,3))
+FD$Habitat <- factor(FD$Habitat , levels=c("PF", "LF", "OP"))
+SESFD$Habitat <- factor(SESFD$Habitat , levels=c("PF", "LF", "OP"))
+
+boxplot(FD$FRic_SES~SESFD$Habitat, xlab="Habitat",ylab="SES functional richness", ylim=c(-2.7,0.7),cex.axis=1.1,cex.lab=1.1)
+abline(h=0,lty="dashed",lwd=3)
+
+boxplot(SESFD$SESFEve~SESFD$Habitat, xlab="Habitat",ylab="SES functional evenness",ylim=c(-2.7,0.7),cex.axis=1.1,cex.lab=1.1)
+abline(h=0,lty="dashed",lwd=3)
+
+boxplot(SESFD$SESRaoQ~SESFD$Habitat, xlab="Habitat",ylab="SES Rao's quadratic entropy", ylim=c(-13.5,-4.7),cex.axis=1.1,cex.lab=1.1)
+abline(h=0,lty="dashed",lwd=3)
+
+
+```
+
+## C. Functional trait variability: Community weighted mean
+To investigate wheter some functional traits vary across the different habitats, the community weighted mean of each trait was compared between all the habitat types. The community weighted mean is defined as the mean value of each trait weighted by the relative abundance of each species (Lavorel et al., 2008). Traits with parametric distributions were evaluated with a one-way ANOVA followed by a Tukey post-hoc test. Traits with non-parametric distributions were evaluated with a Kruskal-Wallis analysis of variance test followed by a Nemenyi post-hoc test.
+```{r}
+Traits2<-readWorkbook("OJ_functional_frog_data.xlsx", sheet=3, colNames = TRUE,rowNames = TRUE)
+community<-as.matrix(community)
+CWM1<-functcomp(Traits2,community)
+CWM<-cbind(Habitat,CWM1)
+CWM$Habitat <- factor(CWM$Habitat , levels=c("PF", "LF", "OP"))
+```
+
+```{r,eval=FALSE}
+#cp
+shapiro.test(CWM$CP)
+boxplot(CWM$CP~CWM$Habitat,xlab="Habitat",ylab="CWM_CP")
+Mod_cwm_cp<-kruskal.test(CWM$CP~CWM$Habitat)
+Mod_cwm_cp
+
+#BH
+shapiro.test(CWM$BH)
+boxplot(CWM$BH~CWM$Habitat,xlab="Habitat",ylab="CWM_BH")
+Mod_cwm_BH<-aov(CWM$BH~CWM$Habitat)
+summary(Mod_cwm_BH)
+
+#Mean male SVL
+shapiro.test(CWM$Mean.male.SVL)
+boxplot(CWM$Mean.male.SVL~CWM$Habitat,xlab="Habitat",ylab="CWM_Mean.male.SVL")
+Mod_cwm_Mean.male.SVL<-kruskal.test(CWM$Mean.male.SVL~CWM$Habitat)
+Mod_cwm_Mean.male.SVL
+
+#Mean female SVL
+shapiro.test(CWM$Mean.female.SVL)
+boxplot(CWM$Mean.female.SVL~CWM$Habitat,xlab="Habitat",ylab="CWM_Mean.female.SVL")
+Mod_cwm_Mean.female.SVL<-kruskal.test(CWM$Mean.female.SVL~CWM$Habitat)
+Mod_cwm_Mean.female.SVL
+
+#GW
+shapiro.test(CWM$GW)
+boxplot(CWM$GW~CWM$Habitat,xlab="Habitat",ylab="CWM_GW")
+Mod_cwm_GW<-kruskal.test(CWM$GW~CWM$Habitat)
+Mod_cwm_GW
+
+#RHL
+shapiro.test(CWM$RHL)
+boxplot(CWM$RHL~CWM$Habitat,xlab="Habitat",ylab="CWM_RHL")
+Mod_cwm_RHL<-aov(CWM$RHL~CWM$Habitat)
+summary(Mod_cwm_RHL)
+
+#HW
+shapiro.test(CWM$HW)
+boxplot(CWM$HW~CWM$Habitat,xlab="Habitat",ylab="CWM_HW")
+Mod_cwm_HW<-aov(CWM$HW~CWM$Habitat)
+summary(Mod_cwm_HW)
+
+#FW
+shapiro.test(CWM$FW)
+boxplot(CWM$FW~CWM$Habitat,xlab="Habitat",ylab="CWM_FW")
+Mod_cwm_FW<-aov(CWM$FW~CWM$Habitat)
+summary(Mod_cwm_FW)
+
+#TD
+shapiro.test(CWM$TD)
+boxplot(CWM$TD~CWM$Habitat,xlab="Habitat",ylab="CWM_TD")
+Mod_cwm_TD<-aov(CWM$TD~CWM$Habitat)
+summary(Mod_cwm_TD)
+
+#RM
+shapiro.test(CWM$RM)
+boxplot(CWM$RM~CWM$Habitat,xlab="Habitat",ylab="CWM_RM")
+Mod_cwm_RM<-kruskal.test(CWM$RM~CWM$Habitat)
+Mod_cwm_RM
+
+#BC
+shapiro.test(CWM$BC)
+boxplot(CWM$BC~CWM$Habitat,xlab="Habitat",ylab="Colour (community weighted mean)", ylim=c(1,4))
+Mod_cwm_BC<-aov(CWM$BC~CWM$Habitat)
+summary(Mod_cwm_BC)
+Tukey_BC<-TukeyHSD(x=Mod_cwm_BC, 'CWM$Habitat', conf.level=0.95,)
+Tukey_BC
+
+#GC
+shapiro.test(CWM$GC)
+boxplot(CWM$GC~CWM$Habitat,xlab="Habitat",ylab="CWM_GC")
+Mod_cwm_GC<-aov(CWM$GC~CWM$Habitat)
+summary(Mod_cwm_GC)
+Tukey_GC<-TukeyHSD(x=Mod_cwm_GC, 'CWM$Habitat', conf.level=0.95)
+Tukey_GC
+```
+
+Only the community weighted mean of the "Basic colouration" trait differed with habitat type. The other traits were not affected.
+```{r}
+
+boxplot(CWM$BC~CWM$Habitat,xlab="Habitat",ylab="Colour (community weighted mean)", ylim=c(1,4))
+shapiro.test(CWM$BC)
+Mod_cwm_BC<-aov(CWM$BC~CWM$Habitat)
+summary(Mod_cwm_BC)
+Tukey_BC<-TukeyHSD(x=Mod_cwm_BC, 'CWM$Habitat', conf.level=0.95,)
+Tukey_BC
+
+
+```
+
+## D. Functional compostition: Functional integrity
+Functional composition was first assessed with the functional integrity index developped by De Coster et al.(2015). The community weighted mean dataset was used to calculate the pairwise distance between sites based on the gower distance. The resulting distance matrix was reduced by a classical multidimensional scaling ordination. Functional integrity was measured by substracting the mean values of primary forests sites from each logged forest site and each oil palm plantation sites.
+
+### Measure functional integrity
+```{r}
+dist_cwm<-as.matrix(vegdist(CWM1,method="gower", binary=FALSE))
+cmd<-cmdscale(dist_cwm,k=2,eig=TRUE)$points[,1]
+
+cmd.PF<-cmd[names.PF<-c("Elepan","Injing","Rhino","Sibut","Tembaling","VJR","West")]
+cmd.LF<-cmd[names.LF<-c("0m","120m","15m","30m","5m","60m","LFE","NEW")]
+cmd.OP<-cmd[names.OP<-c("Belian","Gaharu1","Gaharu2","Gaharu3","Mawang","Menggaris","Merbau")]
+
+posneg=ifelse (mean(cmd.PF)< mean(cmd.LF),-1,1)
+# -1 if primary forest sites have, on average, smaller values than logged forest sites; 1 otherwise
+FI_LF= (cmd.LF-mean(cmd.PF))*posneg + 1 
+#The obtained values were multiplied by posneg to assure higher values of primary forests sites and a positive range was created by adding one to all the values.
+
+posneg2<-ifelse (mean(cmd.PF)< mean(cmd.OP),-1,1)
+# -1 if primary forest sites have, on average, smaller values than oil palm plantation sites; 1 otherwise
+FI_OP=(cmd.OP-mean(cmd.PF))*posneg2 + 1 
+#The obtained values were multiplied by posneg2 to assure higher values of primary forests sites and a positive range was created by adding one to all the values.
+```
+
+### Test whether functional integrity changed from primary forests to logged forests and from primary forests to oil palm plantations
+```{r}
+
+FI_table<-readWorkbook("Functional integrity.xlsx", sheet=1) 
+t.test(FI_table$PF,FI_table$LF)
+t.test(FI_table$PF,FI_table$OP)
+
+```
+
+## E. Functional compostion:  Functional beta-diversity
+
+Functional compostion of Bornean frogs was then measured with the tree-based beta-diversity index which can be used to compute  functional beta-diversity. Functional beta-diveristy represent the trait composition dissimilarity between a pair of communities by measuring the unique (non-shared) fraction of the functional tree between each community pair (Swenson, 2014).
+
+### Functional beta-diversity
+```{r}
+frogs_rev_dendrogram<-rev(frogs_dendrogram) # change the order of the branches by reversing the nodes to compute unifrac
+frogs_rev_dendrogram<-as.phylo(frogs_rev_dendrogram) # transform the reversed dendrogram into a tree of class "phylo", required for unifrac
+
+frogs_rev_cophenetic<-cophenetic.phylo(frogs_rev_dendrogram)
+
+#verify that the branch length dissimilarity matrix of the reverse tree correspond to the original dissimilarity matrix between the traits
+mantel(distance_matrix, frogs_rev_cophenetic, method="pearson", permutations=999) 
+# verify that the branch length dissilarity matrix of the reversed tree correspond to the brach length of the original tree
+mantel(frogs_cophenetic,frogs_rev_cophenetic,method="pearson",permutations = 999)
+#measure the functional beta-diversity 
+uw_beta.funct<-as.matrix(unifrac(community,frogs_rev_dendrogram)) 
+
+```
+
+### Test whether functional beta-diversity is affected by habitat type
+Then, a permutational multivariate analysis of variance (perMANOVA) with 999 permutations was used to test whether the functional beta-diversity (dissimilarity between functional traits) was affected by habitat type.
+```{r}
+# model estimate
+adonis(uw_beta.funct~FD$Habitat)
+
+# Arbizu (2020) created a function that compute a pairwise perMANOVA. This function was used to compare the functional beta-diversity across the three different habitats 
+pairwise.adonis2 <- function(x, data, strata = NULL, nperm=999, ... ) {
+
+##describe parent call function 
+ststri <- ifelse(is.null(strata),'Null',strata)
+fostri <- as.character(x)
+#list to store results
+
+##copy model formula
+   x1 <- x
+## extract left hand side of formula
+  lhs <- x1[[2]]
+##extract factors on right hand side of formula 
+  rhs <- x1[[3]]
+## create model.frame matrix  
+  x1[[2]] <- NULL   
+  rhs.frame <- model.frame(x1, data, drop.unused.levels = TRUE) 
+
+## create unique pairwise combination of factors 
+  co <- combn(unique(as.character(rhs.frame[,1])),2)
+
+## create names vector   
+  nameres <- c('parent_call')
+  for (elem in 1:ncol(co)){
+  nameres <- c(nameres,paste(co[1,elem],co[2,elem],sep='_vs_'))
+  }
+##create results list  
+  res <- vector(mode="list", length=length(nameres))
+  names(res) <- nameres
+
+##add parent call to res 
+res['parent_call'] <- list(paste(fostri[2],fostri[1],fostri[3],', strata =',ststri))
+
+  
+##start iteration trough pairwise combination of factors  
+ for(elem in 1:ncol(co)){
+
+##reduce model elements  
+	if(inherits(eval(lhs),'dist')){	
+	    xred <- as.dist(as.matrix(eval(lhs))[rhs.frame[,1] %in% c(co[1,elem],co[2,elem]),
+		rhs.frame[,1] %in% c(co[1,elem],co[2,elem])])
+	}else{
+	xred <- eval(lhs)[rhs.frame[,1] %in% c(co[1,elem],co[2,elem]),]
+	}
+	
+	mdat1 <-  data[rhs.frame[,1] %in% c(co[1,elem],co[2,elem]),] 
+
+## redefine formula
+	if(length(rhs) == 1){
+		xnew <- as.formula(paste('xred',as.character(rhs),sep='~'))	
+		}else{
+		xnew <- as.formula(paste('xred' , 
+					paste(rhs[-1],collapse= as.character(rhs[1])),
+					sep='~'))}
+					
+##pass new formula to adonis
+	if(is.null(strata)){
+	ad <- adonis(xnew,data=mdat1, ... )
+	}else{
+	perm <- how(nperm = nperm)
+    setBlocks(perm) <- with(mdat1, mdat1[,ststri])
+    ad <- adonis(xnew,data=mdat1,permutations = perm, ... )}
+	
+  res[nameres[elem+1]] <- ad[1]
+  }
+  #names(res) <- names  
+  class(res) <- c("pwadstrata", "list")
+  return(res)
+} 
+pairwise.adonis2(uw_beta.funct~Habitat,FD)
+
+
+```
+
+### NMDS 
+A non-metric multidimensional scaling ordination method was used to visualise the dissimilarity of trait composition (measured by functional beta-diversity) between the different habitats.  
+```{r}
+frogs_metaMDS<-metaMDS(uw_beta.funct,k=2,try =2, trymax =2,engine ="monoMDS", trace=TRUE,plot = FALSE,wascores = TRUE)
+frogs_metaMDS$stress # stress measures the fit between observed dissimilarities and the ordination distances
+stressplot(frogs_metaMDS) # Shepard plot reprsent the fit between observed dissimilarities and the ordination distances
+ordiplot<-ordiplot(frogs_metaMDS,type = "n")
+points(ordiplot,what = "sites",bg=CWM$Habitat,pch=21)
+legend("topleft", legend=c("PF", "LF","OP"),pch =21, pt.bg=c("black", "red", "green"), lty=1:2, cex=0.8)
+ordihull(ordiplot,FD$Habitat,label=TRUE)
+
+```
+
+## References
+
+Botta-Dukat, Z. (2005). Rao's quadratic entropy as a measure of functional diversity based on multiple traits.Journal of vegetation science,16, 533-540. https://doi.org/https://doi.org/10.1111/j.1654-1103.2005.tb02393.x
+
+
+De Coster, G., Banks-Leite, C., & Metzger, J. P. (2015). Atlantic forest bird communities provide different but not fewer functions after habitat loss. Proceedings of the Royal Society B: Biological Sciences, 282, 20142844. https://doi.org/https://doi.org/10.1098/rspb.2014.2844
+
+Laliberte, E., & Legendre, P. (2010). A distance-based framework for measuring functional diversity from multiple traits. Ecology, 91, 299-305. https://doi.org/https://doi.org/10.1890/08-2244.1
+
+Lavorel, S., Grigulis, K., McIntyre, S., Williams, N. S., Garden, D., Dorrough, J., Bonis, A. (2008). Assessing functional diversity in the field-methodology matters!Functional Ecology,22, 134-147. https://doi.org/https://doi.org/10.1111/j.1365-2435.2007.01339.x
+
+Petchey, O. L., & Gaston, K. J. (2002). Functional diversity (FD), species richness and community composition. Ecology letters, 5, 402-411. https://doi.org/https://doi.org/10.1046/j.1461-0248.2002.00339.x
+
+Petchey, O. L., & Gaston, K. J. (2006). Functional diversity: Back to basics and looking forward.Ecologyletters,9, 741-758. https://doi.org/https://doi.org/10.1111/j.1461-0248.2006.00924.x
+
+Martinez Arbizu, P. (2020). pairwiseAdonis: Pairwise multilevel comparison using adonis. R package version 0.4.
+
+Riemann, J. C., Ndriantsoa, S. H., Rodel, M.-O., & Glos, J. (2017). Functional diversity in a fragmented land-scape-habitat alterations affect functional trait composition of frog assemblages in madagascar.GlobalEcology and Conservation,10, 173-183. https://doi.org/https://doi.org/10.1016/j.gecco.2017.03.005
+
+Swenson, N. G. (2014).Functional and phylogenetic ecology in r. Springer.
+
+Villeger, S., Mason, N. W., & Mouillot, D. (2008). New multidimensional functional diversity indices for amultifaceted framework in functional ecology.Ecology,89, 2290-2301. https://doi.org/https://doi.org/10.1890/07-1206.1
+
+
+
+
+
